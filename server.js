@@ -56,7 +56,7 @@ class PredictionEngine {
     trainModels() {
         console.log("Đang khởi tạo và huấn luyện các mô hình AI...");
         const history = this.historyMgr.getHistory();
-        if (history.length < 500) {
+        if (history.length < 10) { // Giảm ngưỡng huấn luyện để luôn có mô hình
             this.mlModel = null;
             this.deepLearningModel = null;
             this.divineModel = null;
@@ -106,7 +106,7 @@ class PredictionEngine {
     }
 
     traderX(history) {
-        if (!this.mlModel || history.length < 500) {
+        if (!this.mlModel) {
             return { prediction: 'Chờ đợi', reason: 'Chưa đủ dữ liệu để huấn luyện Trader X' };
         }
         const last10 = history.slice(-10).map(h => h.ket_qua);
@@ -123,7 +123,7 @@ class PredictionEngine {
     }
 
     phapsuAI(history) {
-        if (!this.deepLearningModel || history.length < 500) {
+        if (!this.deepLearningModel || history.length < 50) { // Giảm ngưỡng kích hoạt
             return { prediction: 'Chờ đợi', reason: 'Chưa đủ dữ liệu để kích hoạt Pháp Sư AI' };
         }
         const last3 = history.slice(-3).map(h => h.ket_qua);
@@ -145,7 +145,7 @@ class PredictionEngine {
     }
 
     thanlucAI(history) {
-        if (!this.divineModel || history.length < 500) {
+        if (!this.divineModel || history.length < 50) { // Giảm ngưỡng kích hoạt
             return { prediction: 'Chờ đợi', reason: 'Chưa đủ dữ liệu để kích hoạt Thần Lực AI' };
         }
         const { streak, currentResult } = this.detectStreakAndBreak(history);
@@ -211,7 +211,7 @@ class PredictionEngine {
 
     supernovaAI(history) {
         const historyLength = history.length;
-        if (historyLength < 100) return { prediction: 'Chờ đợi', reason: 'Không đủ dữ liệu cho Supernova AI', source: 'SUPERNOVA' };
+        if (historyLength < 20) return { prediction: 'Chờ đợi', reason: 'Không đủ dữ liệu cho Supernova AI', source: 'SUPERNOVA' };
         const last30Scores = history.slice(-30).map(h => h.tong || 0);
         const avgScore = last30Scores.reduce((sum, score) => sum + score, 0) / 30;
         const scoreStdDev = Math.sqrt(last30Scores.map(x => Math.pow(x - avgScore, 2)).reduce((a, b) => a + b) / 30);
@@ -232,7 +232,7 @@ class PredictionEngine {
     
     deepCycleAI(history) {
         const historyLength = history.length;
-        if (historyLength < 50) return { prediction: 'Chờ đợi', reason: 'Không đủ dữ liệu cho DeepCycleAI' };
+        if (historyLength < 20) return { prediction: 'Chờ đợi', reason: 'Không đủ dữ liệu cho DeepCycleAI' }; // Giảm ngưỡng kích hoạt
         const last50 = history.slice(-50).map(h => h.ket_qua);
         const last15 = history.slice(-15).map(h => h.ket_qua);
         const taiCounts = [];
@@ -497,8 +497,9 @@ class PredictionEngine {
         const history = this.historyMgr.getHistory();
         const historyLength = history.length;
         
-        if (historyLength < 500) {
-            return this.buildResult("Chờ đợi", 10, 'Không đủ lịch sử để phân tích chuyên sâu. Vui lòng chờ thêm.', 'Chưa đủ dữ liệu', 'Rủi ro cao');
+        // Loại bỏ giới hạn 500 phiên
+        if (historyLength < 5) {
+            return this.buildResult("Chờ đợi", 10, 'Lịch sử quá ngắn để phân tích. Cần ít nhất 5 phiên.', 'Chưa đủ dữ liệu', 'Rủi ro rất cao');
         }
 
         this.trainModels();
@@ -633,6 +634,12 @@ class PredictionEngine {
 
         confidence = (finalScore / totalScore) * 100;
         confidence = Math.min(99.99, Math.max(10, confidence));
+        
+        if (historyLength < 50) {
+            confidence = Math.min(confidence, 30); // Giới hạn độ tin cậy khi dữ liệu ít
+        } else if (historyLength < 200) {
+            confidence = Math.min(confidence, 60); // Giới hạn độ tin cậy khi dữ liệu trung bình
+        }
 
         const predictionLog = {
             phien: currentIndex + 1,
@@ -657,8 +664,12 @@ class PredictionEngine {
             explanations.push(`Mô hình mạnh nhất: ${mostInfluentialModel.model} với trọng số ${mostInfluentialModel.weight.toFixed(2)}.`);
         }
 
-        let status = "Cao";
-        if (dominantModels.length === 4 && dominantModels.every(p => p.prediction === dominantModels[0].prediction)) {
+        let status = "Thường";
+        if (historyLength < 50) {
+            status = "Rủi ro rất cao";
+        } else if (historyLength < 200) {
+            status = "Rủi ro cao";
+        } else if (dominantModels.length === 4 && dominantModels.every(p => p.prediction === dominantModels[0].prediction)) {
             status = "Thần Lực - Vô Hạn";
         } else if (dominantModels.length === 3 && dominantModels.every(p => p.prediction === dominantModels[0].prediction)) {
             status = "Thần Lực - Tuyệt đối";
@@ -718,7 +729,7 @@ app.get('/api/sunwin/predict', async (req, res) => {
 
     } catch (error) {
         console.error("Lỗi khi gọi API hoặc xử lý dữ liệu:", error.message);
-        if (historyManager.getHistory().length >= 500) {
+        if (historyManager.getHistory().length >= 5) {
             const predictionResult = predictionEngine.predict();
             res.status(200).json({
                 id: "Tele:@CsTool001",
