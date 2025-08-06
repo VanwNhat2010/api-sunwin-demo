@@ -1,0 +1,19 @@
+{
+  "name": "sunwin-predict-server",
+  "version": "1.0.0",
+  "description": "API dự đoán Tài Xỉu cho Sunwin",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "express": "^4.19.2",
+    "node-cache": "^5.1.2"
+  },
+  "engines": {
+    "node": ">=14.x"
+  },
+  "author": "CsTool001",
+  "license": "ISC"
+}
