@@ -1,6 +1,7 @@
+
 const express = require('express');
 const axios = require('axios');
-const NodeCache = new require('node-cache')();
+const NodeCache = require('node-cache');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -53,7 +54,6 @@ class PredictionEngine {
     }
 
     trainModels() {
-        // console.log("Initializing and training AI models...");
         const history = this.historyMgr.getHistory();
         if (history.length < 10) { 
             this.mlModel = null;
@@ -100,8 +100,6 @@ class PredictionEngine {
             hasRepeatedPattern: commonPattern.length > 0,
             mostCommonPattern: commonPattern[0]?.[0]
         };
-
-        // console.log("AI models training complete.");
     }
 
     traderX(history) {
@@ -779,4 +777,4 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
-});
+})
