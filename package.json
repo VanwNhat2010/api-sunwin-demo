@@ -1,19 +1,28 @@
 {
-  "name": "sunwin-predict-server",
+  "name": "ten-du-an",
   "version": "1.0.0",
-  "description": "API dự đoán Tài Xỉu cho Sunwin",
-  "main": "server.js",
+  "description": "Một mô tả ngắn về dự án của bạn.",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [
+    "nodejs",
+    "express",
+    "api"
+  ],
+  "author": "Tên của bạn",
+  "license": "MIT",
   "dependencies": {
-    "axios": "^1.7.2",
-    "express": "^4.19.2",
-    "node-cache": "^5.1.2"
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.20"
   },
   "engines": {
-    "node": ">=14.x"
+    "node": ">=14.0.0"
   },
-  "author": "CsTool001",
-  "license": "ISC"
+  "private": true
 }
