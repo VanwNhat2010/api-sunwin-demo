@@ -1,13 +1,14 @@
-
 const express = require('express');
 const axios = require('axios');
 const NodeCache = require('node-cache');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Cache for historical data, set to expire after 30 minutes
 const historicalDataCache = new NodeCache({ stdTTL: 1800, checkperiod: 60 });
 const NEW_API_URL = 'https://sunlol.onrender.com/myapi/taixiu/history';
 
+// Object to store predictions for evaluation
 const modelPredictions = {
     trend: {},
     short: {},
@@ -23,6 +24,7 @@ const modelPredictions = {
     thanluc_ai: {}
 };
 
+// Class to manage historical session data
 class HistoricalDataManager {
     constructor(maxHistoryLength = 5000) {
         this.history = [];
@@ -31,11 +33,14 @@ class HistoricalDataManager {
 
     addSession(newData) {
         if (!newData || !newData.session) return false;
+        // Check for duplicate sessions to prevent adding the same data multiple times
         if (this.history.some(item => item.session === newData.session)) return false;
         this.history.push(newData);
         if (this.history.length > this.maxHistoryLength) {
+            // Trim old data if history exceeds max length
             this.history = this.history.slice(this.history.length - this.maxHistoryLength);
         }
+        // Always keep history sorted by session number
         this.history.sort((a, b) => a.session - b.session);
         return true;
     }
@@ -45,6 +50,7 @@ class HistoricalDataManager {
     }
 }
 
+// Class for the core prediction logic
 class PredictionEngine {
     constructor(historyMgr) {
         this.historyMgr = historyMgr;
@@ -53,9 +59,10 @@ class PredictionEngine {
         this.divineModel = null;
     }
 
+    // Trains the different models based on historical data
     trainModels() {
         const history = this.historyMgr.getHistory();
-        if (history.length < 10) { 
+        if (history.length < 10) {
             this.mlModel = null;
             this.deepLearningModel = null;
             this.divineModel = null;
@@ -67,19 +74,21 @@ class PredictionEngine {
 
         const taiFreq = taiData.length / history.length;
         const xiuFreq = xiuData.length / history.length;
-        
+
+        // Calculate average streak length for Tai and Xiu
         const taiStreakAvg = taiData.reduce((sum, h, i) => {
-            if (i > 0 && taiData[i-1].session === h.session - 1) return sum + 1;
+            if (i > 0 && taiData[i - 1].session === h.session - 1) return sum + 1;
             return sum;
         }, 0) / taiData.length;
 
         const xiuStreakAvg = xiuData.reduce((sum, h, i) => {
-            if (i > 0 && xiuData[i-1].session === h.session - 1) return sum + 1;
+            if (i > 0 && xiuData[i - 1].session === h.session - 1) return sum + 1;
             return sum;
         }, 0) / xiuData.length;
-        
+
         this.mlModel = { taiFreq, xiuFreq, taiStreakAvg, xiuStreakAvg };
-        
+
+        // Deep learning model features from the last 100 sessions
         const last100 = history.slice(-100);
         const last100Results = last100.map(h => h.result);
         const last100Scores = last100.map(h => h.total || 0);
@@ -88,20 +97,22 @@ class PredictionEngine {
             xiuDominance: last100Results.filter(r => r === 'Xỉu').length > last100.length * 0.6,
             highVariance: last100Scores.some(score => score > 14 || score < 6)
         };
-        
+
+        // Divine model pattern detection from the last 200 sessions
         const last200 = history.slice(-200);
         const uniquePatterns = {};
-        for(let i = 0; i < last200.length - 5; i++){
-            const pattern = last200.slice(i, i+5).map(h => h.result).join(',');
+        for (let i = 0; i < last200.length - 5; i++) {
+            const pattern = last200.slice(i, i + 5).map(h => h.result).join(',');
             uniquePatterns[pattern] = (uniquePatterns[pattern] || 0) + 1;
         }
-        const commonPattern = Object.entries(uniquePatterns).filter(([p, count]) => count > 1);
+        const commonPattern = Object.entries(uniquePatterns).filter(([, count]) => count > 1);
         this.divineModel = {
             hasRepeatedPattern: commonPattern.length > 0,
             mostCommonPattern: commonPattern[0]?.[0]
         };
     }
 
+    // Individual prediction models
     traderX(history) {
         if (!this.mlModel) {
             return { prediction: 'Chờ đợi', reason: '[TRADER X] Not enough data to train' };
@@ -120,7 +131,7 @@ class PredictionEngine {
     }
 
     phapsuAI(history) {
-        if (!this.deepLearningModel || history.length < 50) { 
+        if (!this.deepLearningModel || history.length < 50) {
             return { prediction: 'Chờ đợi', reason: '[PHÁP SƯ AI] Not enough data to activate Phap Su AI' };
         }
         const last3 = history.slice(-3).map(h => h.result);
@@ -142,16 +153,16 @@ class PredictionEngine {
     }
 
     thanlucAI(history) {
-        if (!this.divineModel || history.length < 50) { 
+        if (!this.divineModel || history.length < 50) {
             return { prediction: 'Chờ đợi', reason: '[THẦN LỰC AI] Not enough data to activate Than Luc AI' };
         }
         const { streak, currentResult } = this.detectStreakAndBreak(history);
         const last5 = history.slice(-5).map(h => h.result).join(',');
 
-        if(this.divineModel.hasRepeatedPattern && this.divineModel.mostCommonPattern === last5) {
-             const patternArray = this.divineModel.mostCommonPattern.split(',');
-             const nextPred = patternArray.length > 0 ? (patternArray[patternArray.length-1] === 'Tài' ? 'Xỉu' : 'Tài') : 'Chờ đợi';
-             return { prediction: nextPred, reason: `[THẦN LỰC AI] Detected repeating pattern ${last5} -> predicting switch`, source: 'THẦN LỰC' };
+        if (this.divineModel.hasRepeatedPattern && this.divineModel.mostCommonPattern === last5) {
+            const patternArray = this.divineModel.mostCommonPattern.split(',');
+            const nextPred = patternArray.length > 0 ? (patternArray[patternArray.length - 1] === 'Tài' ? 'Xỉu' : 'Tài') : 'Chờ đợi';
+            return { prediction: nextPred, reason: `[THẦN LỰC AI] Detected repeating pattern ${last5} -> predicting switch`, source: 'THẦN LỰC' };
         }
         if (streak >= 7) {
             return { prediction: currentResult === 'Tài' ? 'Xỉu' : 'Tài', reason: `[THẦN LỰC AI] ${currentResult} streak exceeds limit of ${streak} times, certain switch!`, source: 'THẦN LỰC' };
@@ -226,10 +237,10 @@ class PredictionEngine {
         }
         return { prediction: 'Chờ đợi', reason: '[SUPERNOVA] No super-standard signal detected', source: 'SUPERNOVA' };
     }
-    
+
     deepCycleAI(history) {
         const historyLength = history.length;
-        if (historyLength < 20) return { prediction: 'Chờ đợi', reason: 'Not enough data for DeepCycleAI' }; 
+        if (historyLength < 20) return { prediction: 'Chờ đợi', reason: 'Not enough data for DeepCycleAI' };
         const last50 = history.slice(-50).map(h => h.result);
         const last15 = history.slice(-15).map(h => h.result);
         const taiCounts = [];
@@ -490,16 +501,18 @@ class PredictionEngine {
         };
     }
 
+    // Main prediction function
     predict() {
         const history = this.historyMgr.getHistory();
         const historyLength = history.length;
-        
+
         if (historyLength < 5) {
             return this.buildResult("Chờ đợi", 10, 'History too short to analyze. Need at least 5 sessions.', 'Not enough data', 'Very high risk');
         }
 
         this.trainModels();
 
+        // Get predictions from all individual models
         const trendPred = this.trendAndProb(history);
         const shortPred = this.shortPattern(history);
         const meanPred = this.meanDeviation(history);
@@ -527,6 +540,7 @@ class PredictionEngine {
         modelPredictions.phapsu_ai[currentIndex] = phapsuPred.prediction;
         modelPredictions.thanluc_ai[currentIndex] = thanlucPred.prediction;
 
+        // Evaluate model performance to get a score multiplier
         const modelScores = {
             trend: this.evaluateModelPerformance(history, 'trend'),
             short: this.evaluateModelPerformance(history, 'short'),
@@ -582,13 +596,15 @@ class PredictionEngine {
             else if (p.pred === 'Xỉu') xiuScore += p.weight;
         });
 
+        // Apply consensus bonuses
         if (taiConsensus >= 6) {
             taiScore += 0.5;
         }
         if (xiuConsensus >= 6) {
             xiuScore += 0.5;
         }
-        
+
+        // Apply special model combination bonuses
         const dominantModels = [traderXPred, supernovaPred, phapsuPred, thanlucPred].filter(p => p.prediction !== 'Chờ đợi');
         if (dominantModels.length === 4 && dominantModels.every(p => p.prediction === dominantModels[0].prediction)) {
             if (dominantModels[0].prediction === 'Tài') taiScore *= 4;
@@ -601,16 +617,18 @@ class PredictionEngine {
             else xiuScore *= 2;
         }
 
+        // Penalty for "bad patterns"
         if (this.isBadPattern(history)) {
             taiScore *= 0.5;
             xiuScore *= 0.5;
         }
 
+        // Boost score for bridge break predictions
         if (bridgePred.breakProb > 0.6) {
             if (bridgePred.prediction === 'Tài') taiScore += 0.3;
             else if (bridgePred.prediction === 'Xỉu') xiuScore += 0.3;
         }
-        
+
         const totalScore = taiScore + xiuScore;
         let finalPrediction = "Chờ đợi";
         let finalScore = 0;
@@ -630,7 +648,8 @@ class PredictionEngine {
 
         confidence = (finalScore / totalScore) * 100;
         confidence = Math.min(99.99, Math.max(10, confidence));
-        
+
+        // Adjust confidence based on history length
         if (historyLength < 50) {
             confidence = Math.min(confidence, 30);
         } else if (historyLength < 200) {
@@ -643,7 +662,6 @@ class PredictionEngine {
             confidence: confidence,
             models: allPredictions.map(p => ({ model: p.model, pred: p.pred, weight: p.weight.toFixed(2) }))
         };
-        // console.log(`[PREDICTION LOG] ${JSON.stringify(predictionLog)}`);
 
         explanations.push(thanlucPred.reason);
         explanations.push(phapsuPred.reason);
@@ -654,8 +672,8 @@ class PredictionEngine {
         if (deepCyclePred.prediction !== 'Chờ đợi') {
             explanations.push(deepCyclePred.reason);
         }
-        
-        const mostInfluentialModel = allPredictions.sort((a,b) => b.weight - a.weight)[0];
+
+        const mostInfluentialModel = allPredictions.sort((a, b) => b.weight - a.weight)[0];
         if (mostInfluentialModel) {
             explanations.push(`Most influential model: ${mostInfluentialModel.model} with weight ${mostInfluentialModel.weight.toFixed(2)}.`);
         }
@@ -678,7 +696,7 @@ class PredictionEngine {
         } else if (confidence > 80) {
             status = "Absolute";
         }
-        
+
         return this.buildResult(finalPrediction, confidence, explanations.join(" | "), "Composite", status);
     }
 }
@@ -688,32 +706,22 @@ const predictionEngine = new PredictionEngine(historyManager);
 
 // Refactored API route with better error handling and null checks
 app.get('/api/vannhat/predict', async (req, res) => {
-    let currentData = null;
     let predictionResult = null;
     const now = new Date().toISOString();
-    
+
     // Attempt to load from cache
-    let cachedHistoricalData = historicalDataCache.get("full_history");
+    const cachedHistoricalData = historicalDataCache.get("full_history");
     if (cachedHistoricalData && Array.isArray(cachedHistoricalData)) {
         historyManager.history = cachedHistoricalData;
-        console.log("Loaded history from cache.");
+        // console.log("Loaded history from cache.");
     }
 
     try {
         const response = await axios.get(NEW_API_URL, { timeout: 8000 });
         const allHistory = response.data;
-        
+
         if (allHistory && Array.isArray(allHistory) && allHistory.length > 0) {
-            const lastSessionData = allHistory[0];
-            currentData = {
-                session: lastSessionData.phien_truoc,
-                dice: lastSessionData.xuc_xac,
-                total: lastSessionData.tong,
-                result: lastSessionData.ket_qua
-            };
-            historyManager.addSession(currentData);
-            
-            // Add all historical data to the manager to update it completely
+            // Add all historical data to the manager to ensure it's up-to-date
             allHistory.reverse().forEach(item => {
                 historyManager.addSession({
                     session: item.phien_truoc,
@@ -723,11 +731,12 @@ app.get('/api/vannhat/predict', async (req, res) => {
                 });
             });
 
+            // Update cache with the latest data
             historicalDataCache.set("full_history", historyManager.getHistory());
         }
     } catch (error) {
         console.error("Error fetching data from external API:", error.message);
-        // If API call fails, continue using cached/existing data
+        // Continue using cached data if API call fails
     } finally {
         const history = historyManager.getHistory();
         const lastSession = history.length > 0 ? history[history.length - 1] : null;
@@ -744,28 +753,28 @@ app.get('/api/vannhat/predict', async (req, res) => {
             };
         }
 
+        // Construct the response object with null-safe access
         const responseData = {
             id: "Tele:@CsTool001",
             thoi_gian_cap_nhat: now,
-            phien: lastSession ? lastSession.session : null,
-            ket_qua: lastSession ? lastSession.result : null,
-            xuc_xac: lastSession ? lastSession.dice : [],
-            tong: lastSession ? lastSession.total : null,
-            phien_sau: lastSession ? lastSession.session + 1 : null,
-            du_doan: predictionResult.du_doan,
-            do_tin_cay: predictionResult.do_tin_cay,
-            giai_thich: predictionResult.giai_thich,
-            pattern_nhan_dien: predictionResult.pattern_nhan_dien,
-            status_phan_tich: predictionResult.status_phan_tich,
-            tong_so_phien_da_phan_tich: history.length
+            phien: lastSession?.session ?? null,
+            ket_qua: lastSession?.result ?? null,
+            xuc_xac: lastSession?.dice ?? [],
+            tong: lastSession?.total ?? null,
+            phien_sau: lastSession?.session ? lastSession.session + 1 : null,
+            du_doan: predictionResult?.du_doan ?? "Chờ đợi",
+            do_tin_cay: predictionResult?.do_tin_cay ?? 10,
+            giai_thich: predictionResult?.giai_thich ?? "Không có dữ liệu để phân tích.",
+            pattern_nhan_dien: predictionResult?.pattern_nhan_dien ?? "Không đủ dữ liệu",
+            status_phan_tich: predictionResult?.status_phan_tich ?? "Rủi ro cao"
         };
-        
-        // Final sanity check for null values before sending
-        if (!currentData) {
-            responseData.giai_thich = `(Cached data) ${predictionResult.giai_thich}`;
-            responseData.status_phan_tich = "Medium risk (cache)";
+
+        // Add a note if the prediction was based on cached data
+        if (!history.length || (responseData.phien === null && responseData.phien_sau === null)) {
+            responseData.giai_thich = `(Cached data) ${responseData.giai_thich}`;
+            responseData.status_phan_tich = "Rủi ro cao (cache)";
         }
-        
+
         res.json(responseData);
     }
 });
@@ -777,4 +786,4 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
-})
+});
