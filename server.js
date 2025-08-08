@@ -5,7 +5,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const historicalDataCache = new NodeCache({ stdTTL: 1800, checkperiod: 60 });
-const SUNWIN_API_URL = 'https://binhtool90-sunwin-predict.onrender.com/api/taixiu/sunwin';
+// New API URL
+const NEW_API_URL = 'https://sunlol.onrender.com/myapi/taixiu/history';
 
 const modelPredictions = {
     trend: {},
@@ -29,13 +30,13 @@ class HistoricalDataManager {
     }
 
     addSession(newData) {
-        if (!newData || !newData.phien) return false;
-        if (this.history.some(item => item.phien === newData.phien)) return false;
+        if (!newData || !newData.session) return false;
+        if (this.history.some(item => item.session === newData.session)) return false;
         this.history.push(newData);
         if (this.history.length > this.maxHistoryLength) {
             this.history = this.history.slice(this.history.length - this.maxHistoryLength);
         }
-        this.history.sort((a, b) => a.phien - b.phien);
+        this.history.sort((a, b) => a.session - b.session);
         return true;
     }
 
@@ -54,36 +55,36 @@ class PredictionEngine {
     }
 
     trainModels() {
-        console.log("Đang khởi tạo và huấn luyện các mô hình AI...");
+        console.log("Initializing and training AI models...");
         const history = this.historyMgr.getHistory();
-        if (history.length < 10) { // Giảm ngưỡng huấn luyện để luôn có mô hình
+        if (history.length < 10) { 
             this.mlModel = null;
             this.deepLearningModel = null;
             this.divineModel = null;
             return;
         }
 
-        const taiData = history.filter(h => h.ket_qua === 'Tài');
-        const xiuData = history.filter(h => h.ket_qua === 'Xỉu');
+        const taiData = history.filter(h => h.result === 'Tài');
+        const xiuData = history.filter(h => h.result === 'Xỉu');
 
         const taiFreq = taiData.length / history.length;
         const xiuFreq = xiuData.length / history.length;
         
         const taiStreakAvg = taiData.reduce((sum, h, i) => {
-            if (i > 0 && taiData[i-1].phien === h.phien - 1) return sum + 1;
+            if (i > 0 && taiData[i-1].session === h.session - 1) return sum + 1;
             return sum;
         }, 0) / taiData.length;
 
         const xiuStreakAvg = xiuData.reduce((sum, h, i) => {
-            if (i > 0 && xiuData[i-1].phien === h.phien - 1) return sum + 1;
+            if (i > 0 && xiuData[i-1].session === h.session - 1) return sum + 1;
             return sum;
         }, 0) / xiuData.length;
         
         this.mlModel = { taiFreq, xiuFreq, taiStreakAvg, xiuStreakAvg };
         
         const last100 = history.slice(-100);
-        const last100Results = last100.map(h => h.ket_qua);
-        const last100Scores = last100.map(h => h.tong || 0);
+        const last100Results = last100.map(h => h.result);
+        const last100Scores = last100.map(h => h.total || 0);
         this.deepLearningModel = {
             taiDominance: last100Results.filter(r => r === 'Tài').length > last100.length * 0.6,
             xiuDominance: last100Results.filter(r => r === 'Xỉu').length > last100.length * 0.6,
@@ -93,7 +94,7 @@ class PredictionEngine {
         const last200 = history.slice(-200);
         const uniquePatterns = {};
         for(let i = 0; i < last200.length - 5; i++){
-            const pattern = last200.slice(i, i+5).map(h => h.ket_qua).join(',');
+            const pattern = last200.slice(i, i+5).map(h => h.result).join(',');
             uniquePatterns[pattern] = (uniquePatterns[pattern] || 0) + 1;
         }
         const commonPattern = Object.entries(uniquePatterns).filter(([p, count]) => count > 1);
@@ -102,78 +103,78 @@ class PredictionEngine {
             mostCommonPattern: commonPattern[0]?.[0]
         };
 
-        console.log("Huấn luyện các mô hình AI hoàn tất.");
+        console.log("AI models training complete.");
     }
 
     traderX(history) {
         if (!this.mlModel) {
-            return { prediction: 'Chờ đợi', reason: 'Chưa đủ dữ liệu để huấn luyện Trader X' };
+            return { prediction: 'Chờ đợi', reason: '[TRADER X] Not enough data to train' };
         }
-        const last10 = history.slice(-10).map(h => h.ket_qua);
+        const last10 = history.slice(-10).map(h => h.result);
         const currentStreak = this.detectStreakAndBreak(history).streak;
         const taiInLast10 = last10.filter(r => r === 'Tài').length;
         const xiuInLast10 = last10.filter(r => r === 'Xỉu').length;
         if (taiInLast10 / 10 > this.mlModel.taiFreq * 1.5 && currentStreak >= this.mlModel.taiStreakAvg + 1) {
-            return { prediction: 'Xỉu', reason: '[TRADER X] Mẫu Tài đang quá mức trung bình, dự đoán đảo chiều Xỉu' };
+            return { prediction: 'Xỉu', reason: '[TRADER X] Tai pattern is above average, predicting switch to Xiu' };
         }
         if (xiuInLast10 / 10 > this.mlModel.xiuFreq * 1.5 && currentStreak >= this.mlModel.xiuStreakAvg + 1) {
-            return { prediction: 'Tài', reason: '[TRADER X] Mẫu Xỉu đang quá mức trung bình, dự đoán đảo chiều Tài' };
+            return { prediction: 'Tài', reason: '[TRADER X] Xiu pattern is above average, predicting switch to Tai' };
         }
-        return { prediction: 'Chờ đợi', reason: '[TRADER X] Không phát hiện mẫu đặc biệt từ Học máy' };
+        return { prediction: 'Chờ đợi', reason: '[TRADER X] No special pattern detected from Machine Learning' };
     }
 
     phapsuAI(history) {
-        if (!this.deepLearningModel || history.length < 50) { // Giảm ngưỡng kích hoạt
-            return { prediction: 'Chờ đợi', reason: 'Chưa đủ dữ liệu để kích hoạt Pháp Sư AI' };
+        if (!this.deepLearningModel || history.length < 50) { 
+            return { prediction: 'Chờ đợi', reason: '[PHÁP SƯ AI] Not enough data to activate Phap Su AI' };
         }
-        const last3 = history.slice(-3).map(h => h.ket_qua);
-        const last5Scores = history.slice(-5).map(h => h.tong || 0);
+        const last3 = history.slice(-3).map(h => h.result);
+        const last5Scores = history.slice(-5).map(h => h.total || 0);
         const avgScore = last5Scores.reduce((sum, score) => sum + score, 0) / last5Scores.length;
         if (this.deepLearningModel.taiDominance && last3.join(',') === 'Tài,Tài,Tài') {
-            return { prediction: 'Xỉu', reason: '[PHÁP SƯ AI] Phát hiện lỗi liên tiếp 3 Tài trong chu kỳ Tài thống trị, dự đoán bẻ cầu' };
+            return { prediction: 'Xỉu', reason: '[PHÁP SƯ AI] Detected 3 consecutive Tai in a dominant Tai cycle, predicting switch' };
         }
         if (this.deepLearningModel.xiuDominance && last3.join(',') === 'Xỉu,Xỉu,Xỉu') {
-            return { prediction: 'Tài', reason: '[PHÁP SƯ AI] Phát hiện lỗi liên tiếp 3 Xỉu trong chu kỳ Xỉu thống trị, dự đoán bẻ cầu' };
+            return { prediction: 'Tài', reason: '[PHÁP SƯ AI] Detected 3 consecutive Xiu in a dominant Xiu cycle, predicting switch' };
         }
         if (this.deepLearningModel.highVariance && avgScore > 13) {
-            return { prediction: 'Xỉu', reason: '[PHÁP SƯ AI] Phát hiện lỗi điểm số cao bất thường trong chu kỳ biến động lớn' };
+            return { prediction: 'Xỉu', reason: '[PHÁP SƯ AI] Detected unusually high score in a high variance cycle' };
         }
         if (this.deepLearningModel.highVariance && avgScore < 7) {
-            return { prediction: 'Tài', reason: '[PHÁP SƯ AI] Phát hiện lỗi điểm số thấp bất thường trong chu kỳ biến động lớn' };
+            return { prediction: 'Tài', reason: '[PHÁP SƯ AI] Detected unusually low score in a high variance cycle' };
         }
-        return { prediction: 'Chờ đợi', reason: '[PHÁP SƯ AI] Không tìm thấy lỗi hệ thống' };
+        return { prediction: 'Chờ đợi', reason: '[PHÁP SƯ AI] No system error found' };
     }
 
     thanlucAI(history) {
-        if (!this.divineModel || history.length < 50) { // Giảm ngưỡng kích hoạt
-            return { prediction: 'Chờ đợi', reason: 'Chưa đủ dữ liệu để kích hoạt Thần Lực AI' };
+        if (!this.divineModel || history.length < 50) { 
+            return { prediction: 'Chờ đợi', reason: '[THẦN LỰC AI] Not enough data to activate Than Luc AI' };
         }
         const { streak, currentResult } = this.detectStreakAndBreak(history);
-        const last5 = history.slice(-5).map(h => h.ket_qua).join(',');
+        const last5 = history.slice(-5).map(h => h.result).join(',');
 
         if(this.divineModel.hasRepeatedPattern && this.divineModel.mostCommonPattern === last5) {
              const patternArray = this.divineModel.mostCommonPattern.split(',');
              const nextPred = patternArray.length > 0 ? (patternArray[patternArray.length-1] === 'Tài' ? 'Xỉu' : 'Tài') : 'Chờ đợi';
-             return { prediction: nextPred, reason: `[THẦN LỰC AI] Phát hiện chuỗi lặp ${last5} → dự đoán đảo chiều`, source: 'THẦN LỰC' };
+             return { prediction: nextPred, reason: `[THẦN LỰC AI] Detected repeating pattern ${last5} -> predicting switch`, source: 'THẦN LỰC' };
         }
         if (streak >= 7) {
-            return { prediction: currentResult === 'Tài' ? 'Xỉu' : 'Tài', reason: `[THẦN LỰC AI] Chuỗi ${currentResult} kéo dài quá giới hạn ${streak} lần, chắc chắn bẻ cầu!`, source: 'THẦN LỰC' };
+            return { prediction: currentResult === 'Tài' ? 'Xỉu' : 'Tài', reason: `[THẦN LỰC AI] ${currentResult} streak exceeds limit of ${streak} times, certain switch!`, source: 'THẦN LỰC' };
         }
-        return { prediction: 'Chờ đợi', reason: '[THẦN LỰC AI] Không phát hiện tín hiệu siêu nhiên', source: 'THẦN LỰC' };
+        return { prediction: 'Chờ đợi', reason: '[THẦN LỰC AI] No supernatural signal detected', source: 'THẦN LỰC' };
     }
 
     detectStreakAndBreak(history) {
         if (!history || history.length === 0) return { streak: 0, currentResult: null, breakProb: 0.0 };
         let streak = 1;
-        const currentResult = history[history.length - 1].ket_qua;
+        const currentResult = history[history.length - 1].result;
         for (let i = history.length - 2; i >= 0; i--) {
-            if (history[i].ket_qua === currentResult) {
+            if (history[i].result === currentResult) {
                 streak++;
             } else {
                 break;
             }
         }
-        const last15 = history.slice(-15).map(h => h.ket_qua);
+        const last15 = history.slice(-15).map(h => h.result);
         if (!last15.length) return { streak, currentResult, breakProb: 0.0 };
         const switches = last15.slice(1).reduce((count, curr, idx) => count + (curr !== last15[idx] ? 1 : 0), 0);
         const taiCount = last15.filter(r => r === 'Tài').length;
@@ -198,8 +199,8 @@ class PredictionEngine {
         let correctCount = 0;
         for (let i = 0; i < lookback; i++) {
             const historyIndex = history.length - (i + 2);
-            const pred = modelPredictions[modelName][history[historyIndex].phien];
-            const actual = history[history.length - (i + 1)].ket_qua;
+            const pred = modelPredictions[modelName][history[historyIndex].session];
+            const actual = history[history.length - (i + 1)].result;
             if (pred && ((pred === 'Tài' && actual === 'Tài') || (pred === 'Xỉu' && actual === 'Xỉu'))) {
                 correctCount++;
             }
@@ -211,30 +212,30 @@ class PredictionEngine {
 
     supernovaAI(history) {
         const historyLength = history.length;
-        if (historyLength < 20) return { prediction: 'Chờ đợi', reason: 'Không đủ dữ liệu cho Supernova AI', source: 'SUPERNOVA' };
-        const last30Scores = history.slice(-30).map(h => h.tong || 0);
+        if (historyLength < 20) return { prediction: 'Chờ đợi', reason: 'Not enough data for Supernova AI', source: 'SUPERNOVA' };
+        const last30Scores = history.slice(-30).map(h => h.total || 0);
         const avgScore = last30Scores.reduce((sum, score) => sum + score, 0) / 30;
         const scoreStdDev = Math.sqrt(last30Scores.map(x => Math.pow(x - avgScore, 2)).reduce((a, b) => a + b) / 30);
         const lastScore = last30Scores[last30Scores.length - 1];
         if (lastScore > avgScore + scoreStdDev * 2) {
-            return { prediction: 'Xỉu', reason: `[SUPERNOVA] Điểm số gần đây (${lastScore}) quá cao so với trung bình, dự đoán đảo chiều`, source: 'SUPERNOVA' };
+            return { prediction: 'Xỉu', reason: `[SUPERNOVA] Recent score (${lastScore}) is too high compared to average, predicting switch`, source: 'SUPERNOVA' };
         }
         if (lastScore < avgScore - scoreStdDev * 2) {
-            return { prediction: 'Tài', reason: `[SUPERNOVA] Điểm số gần đây (${lastScore}) quá thấp so với trung bình, dự đoán đảo chiều`, source: 'SUPERNOVA' };
+            return { prediction: 'Tài', reason: `[SUPERNOVA] Recent score (${lastScore}) is too low compared to average, predicting switch`, source: 'SUPERNOVA' };
         }
-        const last6 = history.slice(-6).map(h => h.ket_qua);
+        const last6 = history.slice(-6).map(h => h.result);
         if (last6.join(',') === 'Tài,Xỉu,Tài,Xỉu,Tài,Xỉu' || last6.join(',') === 'Xỉu,Tài,Xỉu,Tài,Xỉu,Tài') {
             const nextPred = last6[last6.length - 1] === 'Tài' ? 'Xỉu' : 'Tài';
-            return { prediction: nextPred, reason: `[SUPERNOVA] Phát hiện cầu 1-1 dài hạn, dự đoán theo mẫu`, source: 'SUPERNOVA' };
+            return { prediction: nextPred, reason: `[SUPERNOVA] Detected long-term 1-1 pattern, following pattern`, source: 'SUPERNOVA' };
         }
-        return { prediction: 'Chờ đợi', reason: '[SUPERNOVA] Không phát hiện tín hiệu siêu chuẩn', source: 'SUPERNOVA' };
+        return { prediction: 'Chờ đợi', reason: '[SUPERNOVA] No super-standard signal detected', source: 'SUPERNOVA' };
     }
     
     deepCycleAI(history) {
         const historyLength = history.length;
-        if (historyLength < 20) return { prediction: 'Chờ đợi', reason: 'Không đủ dữ liệu cho DeepCycleAI' }; // Giảm ngưỡng kích hoạt
-        const last50 = history.slice(-50).map(h => h.ket_qua);
-        const last15 = history.slice(-15).map(h => h.ket_qua);
+        if (historyLength < 20) return { prediction: 'Chờ đợi', reason: 'Not enough data for DeepCycleAI' }; 
+        const last50 = history.slice(-50).map(h => h.result);
+        const last15 = history.slice(-15).map(h => h.result);
         const taiCounts = [];
         const xiuCounts = [];
         for (let i = 0; i < last50.length - 10; i++) {
@@ -247,69 +248,69 @@ class PredictionEngine {
         const currentTaiCount = last15.filter(r => r === 'Tài').length;
         const currentXiuCount = last15.filter(r => r === 'Xỉu').length;
         if (currentTaiCount > avgTai + 3) {
-            return { prediction: 'Xỉu', reason: '[DeepCycleAI] Chu kỳ Tài đang đạt đỉnh, dự đoán đảo chiều về Xỉu.' };
+            return { prediction: 'Xỉu', reason: '[DeepCycleAI] Tai cycle is peaking, predicting switch to Xiu.' };
         }
         if (currentXiuCount > avgXiu + 3) {
-            return { prediction: 'Tài', reason: '[DeepCycleAI] Chu kỳ Xỉu đang đạt đỉnh, dự đoán đảo chiều về Tài.' };
+            return { prediction: 'Tài', reason: '[DeepCycleAI] Xiu cycle is peaking, predicting switch to Tai.' };
         }
-        return { prediction: 'Chờ đợi', reason: '[DeepCycleAI] Không phát hiện chu kỳ rõ ràng.' };
+        return { prediction: 'Chờ đợi', reason: '[DeepCycleAI] No clear cycle detected.' };
     }
 
     aihtddLogic(history) {
         if (!history || history.length < 3) {
-            return { prediction: 'Chờ đợi', reason: '[AI VANNHAT] Không đủ lịch sử để phân tích chuyên sâu', source: 'AI VANNHAT' };
+            return { prediction: 'Chờ đợi', reason: '[AI VANNHAT] Not enough history for deep analysis', source: 'AI VANNHAT' };
         }
-        const last5Results = history.slice(-5).map(item => item.ket_qua);
-        const last5Scores = history.slice(-5).map(item => item.tong || 0);
+        const last5Results = history.slice(-5).map(item => item.result);
+        const last5Scores = history.slice(-5).map(item => item.total || 0);
         const taiCount = last5Results.filter(result => result === 'Tài').length;
         const xiuCount = last5Results.filter(result => result === 'Xỉu').length;
         if (history.length >= 3) {
-            const last3Results = history.slice(-3).map(item => item.ket_qua);
+            const last3Results = history.slice(-3).map(item => item.result);
             if (last3Results.join(',') === 'Tài,Xỉu,Tài') {
-                return { prediction: 'Xỉu', reason: '[AI VANNHAT] Phát hiện mẫu 1T1X → nên đánh Xỉu', source: 'AI VANNHAT' };
+                return { prediction: 'Xỉu', reason: '[AI VANNHAT] Detected 1T1X pattern -> bet on Xiu', source: 'AI VANNHAT' };
             } else if (last3Results.join(',') === 'Xỉu,Tài,Xỉu') {
-                return { prediction: 'Tài', reason: '[AI VANNHAT] Phát hiện mẫu 1X1T → nên đánh Tài', source: 'AI VANNHAT' };
+                return { prediction: 'Tài', reason: '[AI VANNHAT] Detected 1X1T pattern -> bet on Tai', source: 'AI VANNHAT' };
             }
         }
         if (history.length >= 4) {
-            const last4Results = history.slice(-4).map(item => item.ket_qua);
+            const last4Results = history.slice(-4).map(item => item.result);
             if (last4Results.join(',') === 'Tài,Tài,Xỉu,Xỉu') {
-                return { prediction: 'Tài', reason: '[AI VANNHAT] Phát hiện mẫu 2T2X → nên đánh Tài', source: 'AI VANNHAT' };
+                return { prediction: 'Tài', reason: '[AI VANNHAT] Detected 2T2X pattern -> bet on Tai', source: 'AI VANNHAT' };
             } else if (last4Results.join(',') === 'Xỉu,Xỉu,Tài,Tài') {
-                return { prediction: 'Xỉu', reason: '[AI VANNHAT] Phát hiện mẫu 2X2T → nên đánh Xỉu', source: 'AI VANNHAT' };
+                return { prediction: 'Xỉu', reason: '[AI VANNHAT] Detected 2X2T pattern -> bet on Xiu', source: 'AI VANNHAT' };
             }
         }
-        if (history.length >= 9 && history.slice(-6).every(item => item.ket_qua === 'Tài')) {
-            return { prediction: 'Xỉu', reason: '[AI VANNHAT] Chuỗi Tài quá dài (6 lần) → dự đoán Xỉu', source: 'AI VANNHAT' };
-        } else if (history.length >= 9 && history.slice(-6).every(item => item.ket_qua === 'Xỉu')) {
-            return { prediction: 'Tài', reason: '[AI VANNHAT] Chuỗi Xỉu quá dài (6 lần) → dự đoán Tài', source: 'AI VANNHAT' };
+        if (history.length >= 9 && history.slice(-6).every(item => item.result === 'Tài')) {
+            return { prediction: 'Xỉu', reason: '[AI VANNHAT] Tai streak is too long (6 times) -> predicting Xiu', source: 'AI VANNHAT' };
+        } else if (history.length >= 9 && history.slice(-6).every(item => item.result === 'Xỉu')) {
+            return { prediction: 'Tài', reason: '[AI VANNHAT] Xiu streak is too long (6 times) -> predicting Tai', source: 'AI VANNHAT' };
         }
         const avgScore = last5Scores.reduce((sum, score) => sum + score, 0) / (last5Scores.length || 1);
         if (avgScore > 10) {
-            return { prediction: 'Tài', reason: `[AI VANNHAT] Điểm trung bình cao (${avgScore.toFixed(1)}) → dự đoán Tài`, source: 'AI VANNHAT' };
+            return { prediction: 'Tài', reason: `[AI VANNHAT] High average score (${avgScore.toFixed(1)}) -> predicting Tai`, source: 'AI VANNHAT' };
         } else if (avgScore < 8) {
-            return { prediction: 'Xỉu', reason: `[AI VANNHAT] Điểm trung bình thấp (${avgScore.toFixed(1)}) → dự đoán Xỉu`, source: 'AI VANNHAT' };
+            return { prediction: 'Xỉu', reason: `[AI VANNHAT] Low average score (${avgScore.toFixed(1)}) -> predicting Xiu`, source: 'AI VANNHAT' };
         }
         if (taiCount > xiuCount + 1) {
-            return { prediction: 'Xỉu', reason: `[AI VANNHAT] Tài chiếm đa số (${taiCount}/${last5Results.length}) → dự đoán Xỉu`, source: 'AI VANNHAT' };
+            return { prediction: 'Xỉu', reason: `[AI VANNHAT] Tai is dominant (${taiCount}/${last5Results.length}) -> predicting Xiu`, source: 'AI VANNHAT' };
         } else if (xiuCount > taiCount + 1) {
-            return { prediction: 'Tài', reason: `[AI VANNHAT] Xỉu chiếm đa số (${xiuCount}/${last5Results.length}) → dự đoán Tài`, source: 'AI VANNHAT' };
+            return { prediction: 'Tài', reason: `[AI VANNHAT] Xiu is dominant (${xiuCount}/${last5Results.length}) -> predicting Tai`, source: 'AI VANNHAT' };
         } else {
-            const overallTai = history.filter(h => h.ket_qua === 'Tài').length;
-            const overallXiu = history.filter(h => h.ket_qua === 'Xỉu').length;
+            const overallTai = history.filter(h => h.result === 'Tài').length;
+            const overallXiu = history.filter(h => h.result === 'Xỉu').length;
             if (overallTai > overallXiu) {
-                return { prediction: 'Xỉu', reason: '[Bẻ Cầu Thông Minh] Tổng thể Tài nhiều hơn → dự đoán Xỉu', source: 'AI VANNHAT' };
+                return { prediction: 'Xỉu', reason: '[Smart Bridge Break] Overall Tai is more frequent -> predicting Xiu', source: 'AI VANNHAT' };
             } else {
-                return { prediction: 'Tài', reason: '[Theo Cầu Thông Minh] Tổng thể Xỉu nhiều hơn hoặc bằng → dự đoán Tài', source: 'AI VANNHAT' };
+                return { prediction: 'Tài', reason: '[Smart Bridge Follow] Overall Xiu is more frequent or equal -> predicting Tai', source: 'AI VANNHAT' };
             }
         }
     }
 
     smartBridgeBreak(history) {
-        if (!history || history.length < 5) return { prediction: 'Chờ đợi', breakProb: 0.0, reason: 'Không đủ dữ liệu để theo/bẻ cầu' };
+        if (!history || history.length < 5) return { prediction: 'Chờ đợi', breakProb: 0.0, reason: 'Not enough data to follow/break bridge' };
         const { streak, currentResult, breakProb } = this.detectStreakAndBreak(history);
-        const last20 = history.slice(-20).map(h => h.ket_qua);
-        const lastScores = history.slice(-20).map(h => h.tong || 0);
+        const last20 = history.slice(-20).map(h => h.result);
+        const lastScores = history.slice(-20).map(h => h.total || 0);
         let breakProbability = breakProb;
         let reason = '';
         const avgScore = lastScores.reduce((sum, score) => sum + score, 0) / (lastScores.length || 1);
@@ -324,19 +325,19 @@ class PredictionEngine {
         const isStablePattern = mostCommonPattern && mostCommonPattern[1] >= 3;
         if (streak >= 3 && scoreDeviation < 2.0 && !isStablePattern) {
             breakProbability = Math.max(breakProbability - 0.25, 0.1);
-            reason = `[Theo Cầu Thông Minh] Chuỗi ${streak} ${currentResult} ổn định, tiếp tục theo cầu`;
+            reason = `[Smart Bridge Follow] Stable ${streak} ${currentResult} streak, continuing to follow`;
         } else if (streak >= 6) {
             breakProbability = Math.min(breakProbability + 0.3, 0.95);
-            reason = `[Bẻ Cầu Thông Minh] Chuỗi ${streak} ${currentResult} quá dài, khả năng bẻ cầu cao`;
+            reason = `[Smart Bridge Break] Long ${streak} ${currentResult} streak, high probability of breaking`;
         } else if (streak >= 3 && scoreDeviation > 3.5) {
             breakProbability = Math.min(breakProbability + 0.25, 0.9);
-            reason = `[Bẻ Cầu Thông Minh] Biến động điểm số lớn (${scoreDeviation.toFixed(1)}), khả năng bẻ cầu tăng`;
+            reason = `[Smart Bridge Break] High score deviation (${scoreDeviation.toFixed(1)}), increased chance of breaking`;
         } else if (isStablePattern && last5.every(r => r === currentResult)) {
             breakProbability = Math.min(breakProbability + 0.2, 0.85);
-            reason = `[Bẻ Cầu Thông Minh] Phát hiện mẫu lặp ${mostCommonPattern[0]}, có khả năng bẻ cầu`;
+            reason = `[Smart Bridge Break] Detected repeating pattern ${mostCommonPattern[0]}, likely to break`;
         } else {
             breakProbability = Math.max(breakProbability - 0.2, 0.1);
-            reason = `[Theo Cầu Thông Minh] Không phát hiện mẫu bẻ mạnh, tiếp tục theo cầu`;
+            reason = `[Smart Bridge Follow] No strong break pattern detected, continuing to follow`;
         }
         let prediction = breakProbability > 0.5 ? (currentResult === 'Tài' ? 'Xỉu' : 'Tài') : currentResult;
         return { prediction, breakProb: breakProbability, reason };
@@ -348,7 +349,7 @@ class PredictionEngine {
             if (breakProb > 0.6) return currentResult === 'Tài' ? 'Xỉu' : 'Tài';
             return currentResult;
         }
-        const last15 = history.slice(-15).map(h => h.ket_qua);
+        const last15 = history.slice(-15).map(h => h.result);
         if (!last15.length) return 'Chờ đợi';
         const weights = last15.map((_, i) => Math.pow(1.3, i));
         const taiWeighted = weights.reduce((sum, w, i) => sum + (last15[i] === 'Tài' ? w : 0), 0);
@@ -378,7 +379,7 @@ class PredictionEngine {
             if (breakProb > 0.6) return currentResult === 'Tài' ? 'Xỉu' : 'Tài';
             return currentResult;
         }
-        const last8 = history.slice(-8).map(h => h.ket_qua);
+        const last8 = history.slice(-8).map(h => h.result);
         if (!last8.length) return 'Chờ đợi';
         const patterns = [];
         if (last8.length >= 2) {
@@ -401,7 +402,7 @@ class PredictionEngine {
             if (breakProb > 0.6) return currentResult === 'Tài' ? 'Xỉu' : 'Tài';
             return currentResult;
         }
-        const last12 = history.slice(-12).map(h => h.ket_qua);
+        const last12 = history.slice(-12).map(h => h.result);
         if (!last12.length) return 'Chờ đợi';
         const taiCount = last12.filter(r => r === 'Tài').length;
         const xiuCount = last12.length - taiCount;
@@ -418,14 +419,14 @@ class PredictionEngine {
             if (breakProb > 0.6) return currentResult === 'Tài' ? 'Xỉu' : 'Tài';
             return currentResult;
         }
-        const last10 = history.slice(-10).map(h => h.ket_qua);
+        const last10 = history.slice(-10).map(h => h.result);
         if (!last10.length) return 'Chờ đợi';
         const switches = last10.slice(1).reduce((count, curr, idx) => count + (curr !== last10[idx] ? 1 : 0), 0);
         return switches >= 4 ? (last10[last10.length - 1] === 'Xỉu' ? 'Tài' : 'Xỉu') : (last10[last10.length - 1] === 'Xỉu' ? 'Tài' : 'Xỉu');
     }
 
     isBadPattern(history) {
-        const last15 = history.slice(-15).map(h => h.ket_qua);
+        const last15 = history.slice(-15).map(h => h.result);
         if (!last15.length) return false;
         const switches = last15.slice(1).reduce((count, curr, idx) => count + (curr !== last15[idx] ? 1 : 0), 0);
         const { streak } = this.detectStreakAndBreak(history);
@@ -433,52 +434,52 @@ class PredictionEngine {
     }
 
     aiVannhatLogic(history) {
-        const recentHistory = history.slice(-5).map(h => h.ket_qua);
-        const recentScores = history.slice(-5).map(h => h.tong || 0);
+        const recentHistory = history.slice(-5).map(h => h.result);
+        const recentScores = history.slice(-5).map(h => h.total || 0);
         const taiCount = recentHistory.filter(r => r === 'Tài').length;
         const xiuCount = recentHistory.filter(r => r === 'Xỉu').length;
         const { streak, currentResult } = this.detectStreakAndBreak(history);
         if (streak >= 2 && streak <= 4) {
-            return { prediction: currentResult, reason: `[Theo Cầu Thông Minh] Chuỗi ngắn ${streak} ${currentResult}, tiếp tục theo cầu`, source: 'AI VANNHAT' };
+            return { prediction: currentResult, reason: `[Smart Bridge Follow] Short streak of ${streak} ${currentResult}, continue to follow`, source: 'AI VANNHAT' };
         }
         if (history.length >= 3) {
-            const last3 = history.slice(-3).map(h => h.ket_qua);
+            const last3 = history.slice(-3).map(h => h.result);
             if (last3.join(',') === 'Tài,Xỉu,Tài') {
-                return { prediction: 'Xỉu', reason: '[Bẻ Cầu Thông Minh] Phát hiện mẫu 1T1X → tiếp theo nên đánh Xỉu', source: 'AI VANNHAT' };
+                return { prediction: 'Xỉu', reason: '[Smart Bridge Break] Detected 1T1X pattern -> next should be Xiu', source: 'AI VANNHAT' };
             } else if (last3.join(',') === 'Xỉu,Tài,Xỉu') {
-                return { prediction: 'Tài', reason: '[Bẻ Cầu Thông Minh] Phát hiện mẫu 1X1T → tiếp theo nên đánh Tài', source: 'AI VANNHAT' };
+                return { prediction: 'Tài', reason: '[Smart Bridge Break] Detected 1X1T pattern -> next should be Tai', source: 'AI VANNHAT' };
             }
         }
         if (history.length >= 4) {
-            const last4 = history.slice(-4).map(h => h.ket_qua);
+            const last4 = history.slice(-4).map(h => h.result);
             if (last4.join(',') === 'Tài,Tài,Xỉu,Xỉu') {
-                return { prediction: 'Tài', reason: '[Theo Cầu Thông Minh] Phát hiện mẫu 2T2X → tiếp theo nên đánh Tài', source: 'AI VANNHAT' };
+                return { prediction: 'Tài', reason: '[Smart Bridge Follow] Detected 2T2X pattern -> next should be Tai', source: 'AI VANNHAT' };
             } else if (last4.join(',') === 'Xỉu,Xỉu,Tài,Tài') {
-                return { prediction: 'Xỉu', reason: '[Theo Cầu Thông Minh] Phát hiện mẫu 2X2T → tiếp theo nên đánh Xỉu', source: 'AI VANNHAT' };
+                return { prediction: 'Xỉu', reason: '[Smart Bridge Follow] Detected 2X2T pattern -> next should be Xiu', source: 'AI VANNHAT' };
             }
         }
-        if (history.length >= 7 && history.slice(-7).every(h => h.ket_qua === 'Xỉu')) {
-            return { prediction: 'Tài', reason: '[Bẻ Cầu Thông Minh] Chuỗi Xỉu quá dài (7 lần) → dự đoán Tài', source: 'AI VANNHAT' };
-        } else if (history.length >= 7 && history.slice(-7).every(h => h.ket_qua === 'Tài')) {
-            return { prediction: 'Xỉu', reason: '[Bẻ Cầu Thông Minh] Chuỗi Tài quá dài (7 lần) → dự đoán Xỉu', source: 'AI VANNHAT' };
+        if (history.length >= 7 && history.slice(-7).every(h => h.result === 'Xỉu')) {
+            return { prediction: 'Tài', reason: '[Smart Bridge Break] Xiu streak is too long (7 times) -> predicting Tai', source: 'AI VANNHAT' };
+        } else if (history.length >= 7 && history.slice(-7).every(h => h.result === 'Tài')) {
+            return { prediction: 'Xỉu', reason: '[Smart Bridge Break] Tai streak is too long (7 times) -> predicting Xiu', source: 'AI VANNHAT' };
         }
         const avgScore = recentScores.reduce((sum, score) => sum + score, 0) / (recentScores.length || 1);
         if (avgScore > 11) {
-            return { prediction: 'Tài', reason: `[Theo Cầu Thông Minh] Điểm trung bình cao (${avgScore.toFixed(1)}) → dự đoán Tài`, source: 'AI VANNHAT' };
+            return { prediction: 'Tài', reason: `[Smart Bridge Follow] High average score (${avgScore.toFixed(1)}) -> predicting Tai`, source: 'AI VANNHAT' };
         } else if (avgScore < 7) {
-            return { prediction: 'Xỉu', reason: `[Theo Cầu Thông Minh] Điểm trung bình thấp (${avgScore.toFixed(1)}) → dự đoán Xỉu`, source: 'AI VANNHAT' };
+            return { prediction: 'Xỉu', reason: `[Smart Bridge Follow] Low average score (${avgScore.toFixed(1)}) -> predicting Xiu`, source: 'AI VANNHAT' };
         }
         if (taiCount > xiuCount + 1) {
-            return { prediction: 'Xỉu', reason: `[Bẻ Cầu Thông Minh] Tài chiếm đa số (${taiCount}/${recentHistory.length}) → dự đoán Xỉu`, source: 'AI VANNHAT' };
+            return { prediction: 'Xỉu', reason: `[Smart Bridge Break] Tai is dominant (${taiCount}/${recentHistory.length}) -> predicting Xiu`, source: 'AI VANNHAT' };
         } else if (xiuCount > taiCount + 1) {
-            return { prediction: 'Tài', reason: `[Bẻ Cầu Thông Minh] Xỉu chiếm đa số (${xiuCount}/${recentHistory.length}) → dự đoán Tài`, source: 'AI VANNHAT' };
+            return { prediction: 'Tài', reason: `[Smart Bridge Break] Xiu is dominant (${xiuCount}/${recentHistory.length}) -> predicting Tai`, source: 'AI VANNHAT' };
         } else {
-            const overallTai = history.filter(h => h.ket_qua === 'Tài').length;
-            const overallXiu = history.filter(h => h.ket_qua === 'Xỉu').length;
+            const overallTai = history.filter(h => h.result === 'Tài').length;
+            const overallXiu = history.filter(h => h.result === 'Xỉu').length;
             if (overallTai > overallXiu) {
-                return { prediction: 'Xỉu', reason: '[Bẻ Cầu Thông Minh] Tổng thể Tài nhiều hơn → dự đoán Xỉu', source: 'AI VANNHAT' };
+                return { prediction: 'Xỉu', reason: '[Smart Bridge Break] Overall Tai is more frequent -> predicting Xiu', source: 'AI VANNHAT' };
             } else {
-                return { prediction: 'Tài', reason: '[Theo Cầu Thông Minh] Tổng thể Xỉu nhiều hơn hoặc bằng → dự đoán Tài', source: 'AI VANNHAT' };
+                return { prediction: 'Tài', reason: '[Smart Bridge Follow] Overall Xiu is more frequent or equal -> predicting Tai', source: 'AI VANNHAT' };
             }
         }
     }
@@ -497,9 +498,8 @@ class PredictionEngine {
         const history = this.historyMgr.getHistory();
         const historyLength = history.length;
         
-        // Loại bỏ giới hạn 500 phiên
         if (historyLength < 5) {
-            return this.buildResult("Chờ đợi", 10, 'Lịch sử quá ngắn để phân tích. Cần ít nhất 5 phiên.', 'Chưa đủ dữ liệu', 'Rủi ro rất cao');
+            return this.buildResult("Chờ đợi", 10, 'History too short to analyze. Need at least 5 sessions.', 'Not enough data', 'Very high risk');
         }
 
         this.trainModels();
@@ -517,7 +517,7 @@ class PredictionEngine {
         const phapsuPred = this.phapsuAI(history);
         const thanlucPred = this.thanlucAI(history);
 
-        const currentIndex = history[history.length - 1].phien;
+        const currentIndex = history[history.length - 1].session;
         modelPredictions.trend[currentIndex] = trendPred;
         modelPredictions.short[currentIndex] = shortPred;
         modelPredictions.mean[currentIndex] = meanPred;
@@ -564,7 +564,7 @@ class PredictionEngine {
         let taiScore = 0;
         let xiuScore = 0;
         const allPredictions = [
-            { pred: trendPred.prediction, weight: baseWeights.trend * modelScores.trend, model: 'trend' },
+            { pred: trendPred, weight: baseWeights.trend * modelScores.trend, model: 'trend' },
             { pred: shortPred, weight: baseWeights.short * modelScores.short, model: 'short' },
             { pred: meanPred, weight: baseWeights.mean * modelScores.mean, model: 'mean' },
             { pred: switchPred, weight: baseWeights.switch * modelScores.switch, model: 'switch' },
@@ -628,26 +628,26 @@ class PredictionEngine {
             finalPrediction = 'Xỉu';
             finalScore = xiuScore;
         } else {
-            explanations.push("Các thuật toán đang mâu thuẫn hoặc không có tín hiệu rõ ràng.");
-            return this.buildResult("Chờ đợi", 35, explanations.join(" | "), "Thị trường không ổn định", "Rủi ro trung bình");
+            explanations.push("The algorithms are in conflict or no clear signal.");
+            return this.buildResult("Chờ đợi", 35, explanations.join(" | "), "Unstable market", "Medium risk");
         }
 
         confidence = (finalScore / totalScore) * 100;
         confidence = Math.min(99.99, Math.max(10, confidence));
         
         if (historyLength < 50) {
-            confidence = Math.min(confidence, 30); // Giới hạn độ tin cậy khi dữ liệu ít
+            confidence = Math.min(confidence, 30);
         } else if (historyLength < 200) {
-            confidence = Math.min(confidence, 60); // Giới hạn độ tin cậy khi dữ liệu trung bình
+            confidence = Math.min(confidence, 60);
         }
 
         const predictionLog = {
-            phien: currentIndex + 1,
-            du_doan: finalPrediction,
-            do_tin_cay: confidence,
+            session: currentIndex + 1,
+            prediction: finalPrediction,
+            confidence: confidence,
             models: allPredictions.map(p => ({ model: p.model, pred: p.pred, weight: p.weight.toFixed(2) }))
         };
-        console.log(`[LOG DỰ ĐOÁN] ${JSON.stringify(predictionLog)}`);
+        console.log(`[PREDICTION LOG] ${JSON.stringify(predictionLog)}`);
 
         explanations.push(thanlucPred.reason);
         explanations.push(phapsuPred.reason);
@@ -661,36 +661,36 @@ class PredictionEngine {
         
         const mostInfluentialModel = allPredictions.sort((a,b) => b.weight - a.weight)[0];
         if (mostInfluentialModel) {
-            explanations.push(`Mô hình mạnh nhất: ${mostInfluentialModel.model} với trọng số ${mostInfluentialModel.weight.toFixed(2)}.`);
+            explanations.push(`Most influential model: ${mostInfluentialModel.model} with weight ${mostInfluentialModel.weight.toFixed(2)}.`);
         }
 
-        let status = "Thường";
+        let status = "Normal";
         if (historyLength < 50) {
-            status = "Rủi ro rất cao";
+            status = "Very high risk";
         } else if (historyLength < 200) {
-            status = "Rủi ro cao";
+            status = "High risk";
         } else if (dominantModels.length === 4 && dominantModels.every(p => p.prediction === dominantModels[0].prediction)) {
-            status = "Thần Lực - Vô Hạn";
+            status = "Divine Power - Infinite";
         } else if (dominantModels.length === 3 && dominantModels.every(p => p.prediction === dominantModels[0].prediction)) {
-            status = "Thần Lực - Tuyệt đối";
+            status = "Divine Power - Absolute";
         } else if (confidence > 99) {
-            status = "Auto Win - CỰC PHẨM";
+            status = "Auto Win - ULTIMATE";
         } else if (confidence > 95) {
-            status = "Tuyệt Mật - Supernova";
+            status = "Top Secret - Supernova";
         } else if (confidence > 90) {
-            status = "Siêu VIP";
+            status = "Super VIP";
         } else if (confidence > 80) {
-            status = "Tuyệt đối";
+            status = "Absolute";
         }
         
-        return this.buildResult(finalPrediction, confidence, explanations.join(" | "), "Tổng hợp", status);
+        return this.buildResult(finalPrediction, confidence, explanations.join(" | "), "Composite", status);
     }
 }
 
 const historyManager = new HistoricalDataManager(5000);
 const predictionEngine = new PredictionEngine(historyManager);
 
-app.get('/api/sunwin/predict', async (req, res) => {
+app.get('/api/vannhat/predict', async (req, res) => {
     let currentData = null;
     let cachedHistoricalData = historicalDataCache.get("full_history");
 
@@ -699,11 +699,30 @@ app.get('/api/sunwin/predict', async (req, res) => {
     }
 
     try {
-        const response = await axios.get(SUNWIN_API_URL, { timeout: 8000 });
-        currentData = response.data;
+        const response = await axios.get(NEW_API_URL, { timeout: 8000 });
+        const allHistory = response.data;
+        
+        if (allHistory && Array.isArray(allHistory) && allHistory.length > 0) {
+            const lastSessionData = allHistory[0];
+            const processedData = {
+                session: lastSessionData.phien_truoc,
+                dice: lastSessionData.xuc_xac,
+                total: lastSessionData.tong,
+                result: lastSessionData.ket_qua
+            };
+            historyManager.addSession(processedData);
+            
+            // Add all historical data to the manager
+            allHistory.reverse().forEach(item => {
+                historyManager.addSession({
+                    session: item.phien_truoc,
+                    dice: item.xuc_xac,
+                    total: item.tong,
+                    result: item.ket_qua
+                });
+            });
 
-        if (currentData && currentData.phien && currentData.ket_qua) {
-            historyManager.addSession(currentData);
+            currentData = processedData;
             historicalDataCache.set("full_history", historyManager.getHistory());
         }
 
@@ -712,11 +731,11 @@ app.get('/api/sunwin/predict', async (req, res) => {
         const result = {
             id: "Tele:@CsTool001",
             thoi_gian_cap_nhat: new Date().toISOString(),
-            phien: currentData ? currentData.phien : (historyManager.getHistory().length > 0 ? historyManager.getHistory().slice(-1)[0].phien : null),
-            ket_qua: currentData ? currentData.ket_qua : null,
-            xuc_xac: currentData ? [currentData.xuc_xac_1, currentData.xuc_xac_2, currentData.xuc_xac_3] : [],
-            tong: currentData ? currentData.tong : null,
-            phien_sau: currentData ? currentData.phien + 1 : (historyManager.getHistory().length > 0 ? historyManager.getHistory().slice(-1)[0].phien + 1 : null),
+            phien: currentData ? currentData.session : (historyManager.getHistory().length > 0 ? historyManager.getHistory().slice(-1)[0].session : null),
+            ket_qua: currentData ? currentData.result : null,
+            xuc_xac: currentData ? currentData.dice : [],
+            tong: currentData ? currentData.total : null,
+            phien_sau: currentData ? currentData.session + 1 : (historyManager.getHistory().length > 0 ? historyManager.getHistory().slice(-1)[0].session + 1 : null),
             du_doan: predictionResult.du_doan,
             do_tin_cay: predictionResult.do_tin_cay,
             giai_thich: predictionResult.giai_thich,
@@ -728,33 +747,33 @@ app.get('/api/sunwin/predict', async (req, res) => {
         res.json(result);
 
     } catch (error) {
-        console.error("Lỗi khi gọi API hoặc xử lý dữ liệu:", error.message);
+        console.error("Error when calling API or processing data:", error.message);
         if (historyManager.getHistory().length >= 5) {
             const predictionResult = predictionEngine.predict();
             res.status(200).json({
                 id: "Tele:@CsTool001",
                 thoi_gian_nhan_loi: new Date().toISOString(),
-                error_from_api: "Không thể lấy dữ liệu phiên hiện tại. Sử dụng dữ liệu lịch sử cached.",
-                phien: historyManager.getHistory().slice(-1)[0].phien,
-                ket_qua: historyManager.getHistory().slice(-1)[0].ket_qua,
-                phien_sau: historyManager.getHistory().slice(-1)[0].phien + 1,
+                error_from_api: "Could not fetch current session data. Using cached historical data.",
+                phien: historyManager.getHistory().slice(-1)[0].session,
+                ket_qua: historyManager.getHistory().slice(-1)[0].result,
+                phien_sau: historyManager.getHistory().slice(-1)[0].session + 1,
                 du_doan: predictionResult.du_doan,
                 do_tin_cay: predictionResult.do_tin_cay,
-                giai_thich: `(Dữ liệu cũ) ${predictionResult.giai_thich}`,
+                giai_thich: `(Old data) ${predictionResult.giai_thich}`,
                 pattern_nhan_dien: predictionResult.pattern_nhan_dien,
-                status_phan_tich: "Rủi ro trung bình (cache)",
+                status_phan_tich: "Medium risk (cache)",
                 tong_so_phien_da_phan_tich: historyManager.getHistory().length
             });
         } else {
              res.status(500).json({
                 id: "Tele:@CsTool001",
                 thoi_gian_nhan_loi: new Date().toISOString(),
-                error: "Không thể lấy dữ liệu từ API gốc và không có đủ lịch sử để phân tích.",
-                du_doan: "Không thể dự đoán",
+                error: "Could not fetch data from the original API and not enough history to analyze.",
+                du_doan: "Cannot predict",
                 do_tin_cay: 0,
-                giai_thich: "Lỗi hệ thống. Không có dữ liệu để phân tích.",
-                pattern_nhan_dien: "Lỗi hệ thống",
-                status_phan_tich: "Lỗi",
+                giai_thich: "System error. No data to analyze.",
+                pattern_nhan_dien: "System error",
+                status_phan_tich: "Error",
                 tong_so_phien_da_phan_tich: 0
             });
         }
@@ -766,5 +785,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Server đang chạy trên cổng ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
