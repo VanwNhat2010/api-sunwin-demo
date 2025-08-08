@@ -1,11 +1,10 @@
 const express = require('express');
 const axios = require('axios');
-const NodeCache = require('node-cache');
+const NodeCache = new require('node-cache')();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const historicalDataCache = new NodeCache({ stdTTL: 1800, checkperiod: 60 });
-// New API URL
 const NEW_API_URL = 'https://sunlol.onrender.com/myapi/taixiu/history';
 
 const modelPredictions = {
@@ -51,11 +50,10 @@ class PredictionEngine {
         this.mlModel = null;
         this.deepLearningModel = null;
         this.divineModel = null;
-        this.trainModels();
     }
 
     trainModels() {
-        console.log("Initializing and training AI models...");
+        // console.log("Initializing and training AI models...");
         const history = this.historyMgr.getHistory();
         if (history.length < 10) { 
             this.mlModel = null;
@@ -103,7 +101,7 @@ class PredictionEngine {
             mostCommonPattern: commonPattern[0]?.[0]
         };
 
-        console.log("AI models training complete.");
+        // console.log("AI models training complete.");
     }
 
     traderX(history) {
@@ -178,7 +176,7 @@ class PredictionEngine {
         if (!last15.length) return { streak, currentResult, breakProb: 0.0 };
         const switches = last15.slice(1).reduce((count, curr, idx) => count + (curr !== last15[idx] ? 1 : 0), 0);
         const taiCount = last15.filter(r => r === 'Tài').length;
-        const xiuCount = last15.filter(r => r === 'Xỉu').length;
+        const xiuCount = last15.length - taiCount;
         const imbalance = Math.abs(taiCount - xiuCount) / last15.length;
         let breakProb = 0.0;
         if (streak >= 6) {
@@ -647,7 +645,7 @@ class PredictionEngine {
             confidence: confidence,
             models: allPredictions.map(p => ({ model: p.model, pred: p.pred, weight: p.weight.toFixed(2) }))
         };
-        console.log(`[PREDICTION LOG] ${JSON.stringify(predictionLog)}`);
+        // console.log(`[PREDICTION LOG] ${JSON.stringify(predictionLog)}`);
 
         explanations.push(thanlucPred.reason);
         explanations.push(phapsuPred.reason);
@@ -690,12 +688,17 @@ class PredictionEngine {
 const historyManager = new HistoricalDataManager(5000);
 const predictionEngine = new PredictionEngine(historyManager);
 
+// Refactored API route with better error handling and null checks
 app.get('/api/vannhat/predict', async (req, res) => {
     let currentData = null;
+    let predictionResult = null;
+    const now = new Date().toISOString();
+    
+    // Attempt to load from cache
     let cachedHistoricalData = historicalDataCache.get("full_history");
-
-    if (cachedHistoricalData) {
+    if (cachedHistoricalData && Array.isArray(cachedHistoricalData)) {
         historyManager.history = cachedHistoricalData;
+        console.log("Loaded history from cache.");
     }
 
     try {
@@ -704,15 +707,15 @@ app.get('/api/vannhat/predict', async (req, res) => {
         
         if (allHistory && Array.isArray(allHistory) && allHistory.length > 0) {
             const lastSessionData = allHistory[0];
-            const processedData = {
+            currentData = {
                 session: lastSessionData.phien_truoc,
                 dice: lastSessionData.xuc_xac,
                 total: lastSessionData.tong,
                 result: lastSessionData.ket_qua
             };
-            historyManager.addSession(processedData);
+            historyManager.addSession(currentData);
             
-            // Add all historical data to the manager
+            // Add all historical data to the manager to update it completely
             allHistory.reverse().forEach(item => {
                 historyManager.addSession({
                     session: item.phien_truoc,
@@ -722,66 +725,56 @@ app.get('/api/vannhat/predict', async (req, res) => {
                 });
             });
 
-            currentData = processedData;
             historicalDataCache.set("full_history", historyManager.getHistory());
         }
+    } catch (error) {
+        console.error("Error fetching data from external API:", error.message);
+        // If API call fails, continue using cached/existing data
+    } finally {
+        const history = historyManager.getHistory();
+        const lastSession = history.length > 0 ? history[history.length - 1] : null;
 
-        const predictionResult = predictionEngine.predict();
+        if (history.length >= 5) {
+            predictionResult = predictionEngine.predict();
+        } else {
+            predictionResult = {
+                du_doan: "Chờ đợi",
+                do_tin_cay: 10,
+                giai_thich: `History too short to analyze. Need at least 5 sessions. Current sessions: ${history.length}.`,
+                pattern_nhan_dien: "Not enough data",
+                status_phan_tich: "Very high risk"
+            };
+        }
 
-        const result = {
+        const responseData = {
             id: "Tele:@CsTool001",
-            thoi_gian_cap_nhat: new Date().toISOString(),
-            phien: currentData ? currentData.session : (historyManager.getHistory().length > 0 ? historyManager.getHistory().slice(-1)[0].session : null),
-            ket_qua: currentData ? currentData.result : null,
-            xuc_xac: currentData ? currentData.dice : [],
-            tong: currentData ? currentData.total : null,
-            phien_sau: currentData ? currentData.session + 1 : (historyManager.getHistory().length > 0 ? historyManager.getHistory().slice(-1)[0].session + 1 : null),
+            thoi_gian_cap_nhat: now,
+            phien: lastSession ? lastSession.session : null,
+            ket_qua: lastSession ? lastSession.result : null,
+            xuc_xac: lastSession ? lastSession.dice : [],
+            tong: lastSession ? lastSession.total : null,
+            phien_sau: lastSession ? lastSession.session + 1 : null,
             du_doan: predictionResult.du_doan,
             do_tin_cay: predictionResult.do_tin_cay,
             giai_thich: predictionResult.giai_thich,
             pattern_nhan_dien: predictionResult.pattern_nhan_dien,
             status_phan_tich: predictionResult.status_phan_tich,
-            tong_so_phien_da_phan_tich: historyManager.getHistory().length
+            tong_so_phien_da_phan_tich: history.length
         };
-
-        res.json(result);
-
-    } catch (error) {
-        console.error("Error when calling API or processing data:", error.message);
-        if (historyManager.getHistory().length >= 5) {
-            const predictionResult = predictionEngine.predict();
-            res.status(200).json({
-                id: "Tele:@CsTool001",
-                thoi_gian_nhan_loi: new Date().toISOString(),
-                error_from_api: "Could not fetch current session data. Using cached historical data.",
-                phien: historyManager.getHistory().slice(-1)[0].session,
-                ket_qua: historyManager.getHistory().slice(-1)[0].result,
-                phien_sau: historyManager.getHistory().slice(-1)[0].session + 1,
-                du_doan: predictionResult.du_doan,
-                do_tin_cay: predictionResult.do_tin_cay,
-                giai_thich: `(Old data) ${predictionResult.giai_thich}`,
-                pattern_nhan_dien: predictionResult.pattern_nhan_dien,
-                status_phan_tich: "Medium risk (cache)",
-                tong_so_phien_da_phan_tich: historyManager.getHistory().length
-            });
-        } else {
-             res.status(500).json({
-                id: "Tele:@CsTool001",
-                thoi_gian_nhan_loi: new Date().toISOString(),
-                error: "Could not fetch data from the original API and not enough history to analyze.",
-                du_doan: "Cannot predict",
-                do_tin_cay: 0,
-                giai_thich: "System error. No data to analyze.",
-                pattern_nhan_dien: "System error",
-                status_phan_tich: "Error",
-                tong_so_phien_da_phan_tich: 0
-            });
+        
+        // Final sanity check for null values before sending
+        if (!currentData) {
+            responseData.giai_thich = `(Cached data) ${predictionResult.giai_thich}`;
+            responseData.status_phan_tich = "Medium risk (cache)";
         }
+        
+        res.json(responseData);
     }
 });
 
+
 app.get('/', (req, res) => {
-    res.send('CHÀO CON CHÓ : MUA TOOL IB @CsTool001');
+    res.send('Welcome to the Prediction API. For tool inquiries, please contact @CsTool001 on Telegram.');
 });
 
 app.listen(PORT, () => {
